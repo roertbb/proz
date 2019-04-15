@@ -1,3 +1,7 @@
+# useful links
+# https://docs.python.org/2/library/thread.html
+# https://mpi4py.readthedocs.io/en/stable/intro.html
+
 # tag = 1 - request/response
 # {id: int, lamport: int, resource_type: int, requested_size?: int, vehice_id?: int} 
 # 1 - see, 2 - vehicle, 3 - engineer
@@ -19,22 +23,21 @@ MAX_VEHICLE_DURABILITY = 10
 MIN_ENGINEER_NUM = 1
 MAX_ENGINEER_NUM = 2
 
-import threading
+import thread
 from mpi4py import MPI
 import random
-
-# local data
-m = 0 # size of see
-p = [] # array of vehicles
-t = 0 # number of engineers
-lamport = 0
-requests = []
+import time
+from guide import Guide
 
 comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
 def initialize_state():
+    m = 0
+    p = []
+    t = 0
+
     if rank == 0:
         m = random.randint(MIN_SEE_SIZE,MAX_SEE_SIZE)
         p_num = random.randint(MIN_VEHICLE_NUM, MAX_VEHICLE_NUM)
@@ -50,10 +53,10 @@ def initialize_state():
         p = data['p']
         t = data['t']  
 
-# each process creates thread for listening
-# prepare locks for shared data
-# start routine
-
+    return (m,p,t)
+    
 if __name__ == "__main__":
-    initialize_state()
-
+    m,p,t = initialize_state()
+    g = Guide(m,p,t,comm,rank,size)
+    g.run()
+    
