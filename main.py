@@ -79,8 +79,6 @@ class Guide():
             # change section state
             self.log('in section')
             self.see_section()
-            with self.proc_cond:
-                self.proc_cond.notify()
 
             # release section
             self.log('section released - traveling')
@@ -216,10 +214,9 @@ class Guide():
                         self.req_before.append(res)
                         res_sum += res['amount']
 
-        if res_sum + self.x <= self.m:
-            with self.proc_cond:
-                self.proc_cond.notify()
-                self.proc_cond.wait()
+            if res_sum + self.x <= self.m:
+                with self.proc_cond:
+                    self.proc_cond.notify()
 
     def receive(self):
         msg = self.comm.recv()
