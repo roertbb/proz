@@ -12,6 +12,16 @@ MAX_SEE_SIZE = 6
 MIN_GROUP_SIZE = 1
 MAX_GROUP_SIZE = 4
 
+# VEHICLE
+MIN_VEHICLE_NUM = 2
+MAX_VEHICLE_NUM = 3
+MIN_VEHICLE_DURABILITY = 5
+MAX_VEHICLE_DURABILITY = 10
+
+# ENGINEER
+MIN_ENGINEER_NUM = 1
+MAX_ENGINEER_NUM = 2
+
 # SLEEP
 MIN_WAIT_TIME = 2
 MAX_WAIT_TIME = 5
@@ -30,10 +40,15 @@ class Message(Enum):
     FREE=5
 
 class Guide():
-    def __init__(self, m, comm, rank, size):
+    def __init__(self, m, p, t, comm, rank, size):
         # local data
         self.m = m
         self.max_m = m
+        self.p = p
+        self.p_num = len(p)
+        self.max_p = len(p)
+        self.t = t
+        self.max_t = t
 
         # requesting resource data
         self.req_res_cond = Condition()
@@ -72,23 +87,36 @@ class Guide():
             self.request_access_to_see()
 
             # wait until can enter section
-            self.log('wait until can enter section')
+            self.log('wait until can enter see section')
             with self.proc_cond:
                 self.proc_cond.wait()
 
             # change section state
-            self.log('in section')
+            self.log('in see section')
             self.see_section()
 
             # release section
-            self.log('section released - traveling')
+            self.log('see section released')
+
+            # TODO: requesting access for vehicle
+
+            # TODO: wait until can enter vehicle section
+
+            # TODO: change vehicle section state
+
+            # TODO: release vehicle section
 
             # travel
+            self.log('traveling')
             self.rand_sleep()
 
             # free see
             self.log('finished traveling - releasing see')
             self.free_see()
+
+            # TODO: check if vehicle is a wreck
+            
+            # TODO: free vehicle
 
     def free_see(self):
         msg = {'id': self.rank, 'type': Message.FREE}
@@ -122,19 +150,16 @@ class Guide():
             msg['resource'] = Resource.SEE
             self.x = random.randint(MIN_WAIT_TIME, MAX_GROUP_SIZE)
             msg['amount'] = self.x
-
-            with self.lamport_cond:
-                self.lamport += 1
-                self.req_lamport = self.lamport
-                msg['req_lamport'] = self.req_lamport
-        
+    
         self.broadcast_msg(msg)
 
     def broadcast_msg(self, msg):
         with self.lamport_cond:
             self.lamport += 1
             msg['lamport'] = self.lamport
-
+            self.req_lamport = self.lamport
+            msg['req_lamport'] = self.req_lamport
+        
             for tid in range(self.size):
                 if tid != self.rank:
                     self.comm.send(msg, dest=tid)
@@ -227,14 +252,23 @@ class Guide():
         return msg
 
     def log(self, msg):
-        print('id: {}, t: {:5}, req_t: {:4}, m: {:3}, x: {:4} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, msg))
+        colors = ['\033[91m','\033[92m','\033[93m','\033[94m','\033[95m','\033[96m']
+        CEND = '\033[0m'
+        print(colors[self.rank] + 'id: {}, t: {:5}, req_t: {:4}, m: {:3}, x: {:4} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, msg) + CEND)
 
 def init_state():
     m = 0
+    p = []
+    t = 0
 
     if rank == 0:
         m = random.randint(MIN_SEE_SIZE,MAX_SEE_SIZE)
-        data = {'m': m}
+        p_num = random.randint(MIN_VEHICLE_NUM, MAX_VEHICLE_NUM)
+        for vehicle_id in (range(p_num)):
+            durability = random.randint(MIN_VEHICLE_DURABILITY, MAX_VEHICLE_DURABILITY)
+            p.append({'vehicle_id': vehicle_id, 'durability': durability, 'max_durability': durability})
+        t = random.randint(MIN_ENGINEER_NUM, MAX_ENGINEER_NUM)
+        data = {'m': m, 'p': p, 't': t}
     else:
         data = None
 
@@ -242,12 +276,14 @@ def init_state():
 
     if rank != 0:
         m = data['m']
+        p = data['p']
+        t = data['t']  
 
-    return (m)
+    return (m, p, t)
 
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
-    m = init_state()
-    g = Guide(m, comm, rank, size)
+    m, p, t = init_state()
+    g = Guide(m, p, t, comm, rank, size)
