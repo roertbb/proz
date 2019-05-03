@@ -54,6 +54,7 @@ class Guide():
         self.req_res_cond = Condition()
         self.req_res = Resource.NONE
         self.x = None
+        self.taken_vehicle = None
 
         # mpi related
         self.comm = comm
@@ -83,40 +84,85 @@ class Guide():
             self.rand_sleep()
 
             # request access to see, broadcast request
-            self.log('requesting access to see')
-            self.request_access_to_see()
+            # self.log('requesting access to see')
+            # self.request_access_to_see()
 
             # wait until can enter section
-            self.log('wait until can enter see section')
+            # self.log('wait until can enter see section')
+            # with self.proc_cond:
+            #     self.proc_cond.wait()
+
+            # change section state
+            # self.log('in see section')
+            # self.see_section()
+
+            # release section
+            # self.log('see section released')
+
+            # TODO: requesting access for vehicle
+            self.log('requesting access for vehicle')
+            self.request_access_to_vehicle()
+
+            # TODO: wait until can enter vehicle section
+            self.log('wait until can enter vehicle section')
             with self.proc_cond:
                 self.proc_cond.wait()
 
-            # change section state
-            self.log('in see section')
-            self.see_section()
-
-            # release section
-            self.log('see section released')
-
-            # TODO: requesting access for vehicle
-
-            # TODO: wait until can enter vehicle section
-
             # TODO: change vehicle section state
+            self.log('in vehicle section')
+            self.vehicle_section()
 
             # TODO: release vehicle section
-
+            self.log('vehicle section released')
+            
             # travel
             self.log('traveling')
             self.rand_sleep()
 
             # free see
-            self.log('finished traveling - releasing see')
-            self.free_see()
+            # self.log('finished traveling - releasing see')
+            # self.free_see()
 
             # TODO: check if vehicle is a wreck
             
             # TODO: free vehicle
+            self.log('releasing vehicle')
+            self.free_vehicle()
+
+    def free_vehicle(self):
+        msg = {'id': self.rank, 'type': Message.FREE}
+        
+        with self.req_res_cond:
+            msg['resource'] = Resource.VEHICLE
+            msg['vehicle'] = self.taken_vehicle
+            self.p.append(self.taken_vehicle)
+            self.taken_vehicle = None
+
+            self.broadcast_msg(msg)
+
+    def vehicle_section(self):
+        msg = {'id': self.rank, 'type': Message.RELEASE}
+
+        with self.req_res_cond:
+            self.req_res = Resource.NONE
+            self.req_lamport = None
+            self.responses = {}
+            self.taken_vehicle = self.p.pop(0)
+            msg['vehicle'] = self.taken_vehicle['vid']
+            msg['resource'] = Resource.VEHICLE
+            
+            self.broadcast_msg(msg)
+
+    def request_access_to_vehicle(self):
+        msg = {'id': self.rank, 'type': Message.REQ}
+
+        with self.req_res_cond:
+            self.req_res = Resource.VEHICLE
+            msg['resource'] = Resource.VEHICLE
+    
+            self.broadcast_msg(msg)
+
+    ################################################
 
     def free_see(self):
         msg = {'id': self.rank, 'type': Message.FREE}
@@ -127,7 +173,7 @@ class Guide():
             self.m += self.x
             self.x = None
 
-        self.broadcast_msg(msg)
+            self.broadcast_msg(msg)
 
     def see_section(self):
         msg = {'id': self.rank, 'type': Message.RELEASE}
@@ -140,7 +186,7 @@ class Guide():
             msg['resource'] = Resource.SEE
             msg['amount'] = self.x
 
-        self.broadcast_msg(msg)
+            self.broadcast_msg(msg)
 
     def request_access_to_see(self):
         msg = {'id': self.rank, 'type': Message.REQ}
@@ -151,7 +197,7 @@ class Guide():
             self.x = random.randint(MIN_WAIT_TIME, MAX_GROUP_SIZE)
             msg['amount'] = self.x
     
-        self.broadcast_msg(msg)
+            self.broadcast_msg(msg)
 
     def broadcast_msg(self, msg):
         with self.lamport_cond:
@@ -187,7 +233,9 @@ class Guide():
                         resp = {'id': self.rank, 'type': Message.RES_OK}
                         self.send(resp, msg['id'])
                     else:
-                        resp = {'id': self.rank, 'type': Message.RES_REQ, 'amount': self.x, 'req_lamport': self.req_lamport}
+                        resp = {'id': self.rank, 'type': Message.RES_REQ, 'req_lamport': self.req_lamport} # 'amount': self.x
+                        if self.req_res == Resource.SEE:
+                            resp['amount'] = self.x
                         self.send(resp, msg['id'])
 
             elif msg['type'] == Message.RES_OK or msg['type'] == Message.RES_REQ:
@@ -203,6 +251,8 @@ class Guide():
                 with self.req_res_cond:
                     if msg['resource'] == Resource.SEE:
                         self.m -= msg['amount']
+                    elif msg['resource'] == Resource.VEHICLE:
+                        self.p = list(filter(lambda v: v['vid'] != msg['vehicle'], self.p))
 
                     if self.req_res == msg['resource']:
                         self.responses[msg['id']] = msg
@@ -216,6 +266,8 @@ class Guide():
                 with self.req_res_cond:
                     if msg['resource'] == Resource.SEE:
                         self.m += msg['amount']
+                    elif msg['resource'] == Resource.VEHICLE:
+                        self.p.append(msg['vehicle'])
 
                 # check if can enter section
                 if msg['resource'] == self.req_res:
@@ -233,13 +285,21 @@ class Guide():
                     return
 
             res_sum = 0
+            self.req_before = []
             for res in self.responses.values():
                 if 'req_lamport' in res:
                     if res['req_lamport'] < self.req_lamport or (res['req_lamport'] == self.req_lamport and res['id'] < self.rank):
                         self.req_before.append(res)
-                        res_sum += res['amount']
+                        res_sum += res['amount'] if self.req_res == Resource.SEE else 1
 
-            if res_sum + self.x <= self.m:
+            if self.req_res == Resource.SEE:
+                if res_sum + self.x <= self.m:
+                    with self.proc_cond:
+                        self.proc_cond.notify()
+            elif self.req_res == Resource.VEHICLE:
+                # return if anyone choosing vehicle before us or there is no available vehicles
+                if len(self.req_before) != 0 or len(self.p) == 0:
+                    return
                 with self.proc_cond:
                     self.proc_cond.notify()
 
@@ -254,7 +314,9 @@ class Guide():
     def log(self, msg):
         colors = ['\033[91m','\033[92m','\033[93m','\033[94m','\033[95m','\033[96m']
         CEND = '\033[0m'
-        print(colors[self.rank] + 'id: {}, t: {:5}, req_t: {:4}, m: {:3}, x: {:4} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, msg) + CEND)
+        # print(colors[self.rank] + 'id: {}, t: {:5}, req_t: {:4}, m: {:3}, x: {:4} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, msg) + CEND)
+        vehicles = list(map(lambda v: v['vid'], self.p))
+        print(colors[self.rank] + 'id: {}, t: {:5}, req_t: {:4}, p: {:3} - {:10} - {}'.format(self.rank, self.lamport, self.req_lamport, len(self.p), vehicles, msg) + CEND)
 
 def init_state():
     m = 0
@@ -266,7 +328,7 @@ def init_state():
         p_num = random.randint(MIN_VEHICLE_NUM, MAX_VEHICLE_NUM)
         for vehicle_id in (range(p_num)):
             durability = random.randint(MIN_VEHICLE_DURABILITY, MAX_VEHICLE_DURABILITY)
-            p.append({'vehicle_id': vehicle_id, 'durability': durability, 'max_durability': durability})
+            p.append({'vid': vehicle_id, 'durability': durability, 'max_durability': durability})
         t = random.randint(MIN_ENGINEER_NUM, MAX_ENGINEER_NUM)
         data = {'m': m, 'p': p, 't': t}
     else:
