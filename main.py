@@ -104,6 +104,7 @@ class Guide():
             # wait until can enter vehicle section
             self.log('wait until can enter vehicle section')
             with self.proc_cond:
+                print("id: {} - cond".format(self.rank))
                 self.proc_cond.wait()
 
             # change vehicle section state
@@ -337,6 +338,7 @@ class Guide():
                     self.can_enter_section()
 
     def can_enter_section(self):
+        print("id: {}, responses: {}".format(self.rank, self.responses))
         # return when didn't received response from others
         if len(self.responses.values()) < self.size-1:
             return
@@ -364,7 +366,9 @@ class Guide():
                 # return if anyone choosing vehicle before us or there is no available vehicles
                 if len(self.req_before) != 0 or len(self.p) == 0:
                     return
+                print("id: {} - notify1".format(self.rank))
                 with self.proc_cond:
+                    print("id: {} - notify2".format(self.rank))
                     self.proc_cond.notify()
 
             elif self.req_res == Resource.ENGINEER:
