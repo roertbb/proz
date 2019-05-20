@@ -1,12 +1,12 @@
-from threading import Thread, Condition
+from threading import Thread, Condition, Lock
 from mpi4py import MPI
 import random
 from enum import Enum
 import time
 
-# SEE
-MIN_SEE_SIZE = 5
-MAX_SEE_SIZE = 6
+# sea
+MIN_sea_SIZE = 5
+MAX_sea_SIZE = 6
 
 # GROUP
 MIN_GROUP_SIZE = 1
@@ -28,7 +28,7 @@ MAX_WAIT_TIME = 5
 
 class Resource(Enum):
     NONE=0
-    SEE=1
+    sea=1
     VEHICLE=2
     ENGINEER=3
 
@@ -68,7 +68,7 @@ class Guide():
         self.responses = {}
         self.req_before = []
 
-        self.proc_cond = Condition()
+        self.proc_cond = Lock()
 
         self.running = True
         self.run()
@@ -76,26 +76,28 @@ class Guide():
     def run(self):
         # create thread listening for messages
         Thread(target=self.listen).start()
-        
+        self.proc_cond.acquire()
+
         while self.running:
             # wait until group gather
             self.log('wait for group to gather')
             self.rand_sleep()
 
-            # request access to see, broadcast request
-            self.log('requesting access to see')
-            self.request_access_to_see()
+            # request access to sea, broadcast request
+            self.log('requesting access to sea')
+            self.request_access_to_sea()
 
             # wait until can enter section
-            self.log('wait until can enter see section')
-            with self.proc_cond:
-                self.proc_cond.wait()
+            self.log('wait until can enter sea section')
+            self.proc_cond.acquire() 
+            # with self.proc_cond:
+            #     self.proc_cond.wait()
 
             # change section state
-            self.log('in see section')
-            self.see_section()
+            self.log('in sea section')
+            self.sea_section()
             # release section
-            self.log('see section released')
+            self.log('sea section released')
 
             # requesting access for vehicle
             self.log('requesting access for vehicle')
@@ -103,9 +105,10 @@ class Guide():
 
             # wait until can enter vehicle section
             self.log('wait until can enter vehicle section')
-            with self.proc_cond:
-                print("id: {} - cond".format(self.rank))
-                self.proc_cond.wait()
+            self.proc_cond.acquire() 
+            # with self.proc_cond:
+            #     print("id: {} - cond".format(self.rank))
+            #     self.proc_cond.wait()
 
             # change vehicle section state
             self.log('in vehicle section')
@@ -117,9 +120,9 @@ class Guide():
             self.log('traveling')
             self.rand_sleep(damage_vehicle=True)
 
-            # free see
-            self.log('finished traveling - releasing see')
-            self.free_see()
+            # free sea
+            self.log('finished traveling - releasing sea')
+            self.free_sea()
 
             # check if vehicle is a wreck
             if (self.taken_vehicle['durability'] == 0):
@@ -129,8 +132,9 @@ class Guide():
 
                 # wait until can enter section
                 self.log('wait until can enter engineer section')
-                with self.proc_cond:
-                    self.proc_cond.wait()
+                self.proc_cond.acquire() 
+                # with self.proc_cond:
+                #     self.proc_cond.wait()
 
                 # change section state
                 self.log('in engineer section')
@@ -216,18 +220,18 @@ class Guide():
 
     ################################################
 
-    def free_see(self):
+    def free_sea(self):
         msg = {'id': self.rank, 'type': Message.FREE}
         
         with self.req_res_cond:
-            msg['resource'] = Resource.SEE
+            msg['resource'] = Resource.sea
             msg['amount'] = self.x
             self.m += self.x
             self.x = None
 
             self.broadcast_msg(msg)
 
-    def see_section(self):
+    def sea_section(self):
         msg = {'id': self.rank, 'type': Message.RELEASE}
 
         with self.req_res_cond:
@@ -235,17 +239,17 @@ class Guide():
             self.req_lamport = None
             self.responses = {}
             self.m -= self.x
-            msg['resource'] = Resource.SEE
+            msg['resource'] = Resource.sea
             msg['amount'] = self.x
 
             self.broadcast_msg(msg)
 
-    def request_access_to_see(self):
+    def request_access_to_sea(self):
         msg = {'id': self.rank, 'type': Message.REQ}
 
         with self.req_res_cond:
-            self.req_res = Resource.SEE
-            msg['resource'] = Resource.SEE
+            self.req_res = Resource.sea
+            msg['resource'] = Resource.sea
             self.x = random.randint(MIN_WAIT_TIME, MAX_GROUP_SIZE)
             msg['amount'] = self.x
     
@@ -296,7 +300,7 @@ class Guide():
                         self.send(resp, msg['id'])
                     else:
                         resp = {'id': self.rank, 'type': Message.RES_REQ, 'req_lamport': self.req_lamport} # 'amount': self.x
-                        if self.req_res == Resource.SEE:
+                        if self.req_res == Resource.sea:
                             resp['amount'] = self.x
                         self.send(resp, msg['id'])
 
@@ -311,7 +315,7 @@ class Guide():
                 # self.log('received release - {}'.format(msg))
                 
                 with self.req_res_cond:
-                    if msg['resource'] == Resource.SEE:
+                    if msg['resource'] == Resource.sea:
                         self.m -= msg['amount']
                     elif msg['resource'] == Resource.VEHICLE:
                         self.p = list(filter(lambda v: v['vid'] != msg['vehicle'], self.p))
@@ -326,7 +330,7 @@ class Guide():
                 # self.log('received free - {}'.format(msg))
                 
                 with self.req_res_cond:
-                    if msg['resource'] == Resource.SEE:
+                    if msg['resource'] == Resource.sea:
                         self.m += msg['amount']
                     elif msg['resource'] == Resource.VEHICLE:
                         self.p.append(msg['vehicle'])
@@ -355,26 +359,29 @@ class Guide():
                 if 'req_lamport' in res:
                     if res['req_lamport'] < self.req_lamport or (res['req_lamport'] == self.req_lamport and res['id'] < self.rank):
                         self.req_before.append(res)
-                        res_sum += res['amount'] if self.req_res == Resource.SEE else 1
+                        res_sum += res['amount'] if self.req_res == Resource.sea else 1
 
-            if self.req_res == Resource.SEE:
+            if self.req_res == Resource.sea:
                 if res_sum + self.x <= self.m:
-                    with self.proc_cond:
-                        self.proc_cond.notify()
+                    self.proc_cond.release()
+                    # with self.proc_cond:
+                    #     self.proc_cond.notify()
 
             elif self.req_res == Resource.VEHICLE:
                 # return if anyone choosing vehicle before us or there is no available vehicles
                 if len(self.req_before) != 0 or len(self.p) == 0:
                     return
                 print("id: {} - notify1".format(self.rank))
-                with self.proc_cond:
-                    print("id: {} - notify2".format(self.rank))
-                    self.proc_cond.notify()
+                self.proc_cond.release()
+                print("id: {} - notify2".format(self.rank))    
+                # with self.proc_cond:
+                #     self.proc_cond.notify()
 
             elif self.req_res == Resource.ENGINEER:
                 if res_sum + 1 <= self.t:
-                    with self.proc_cond:
-                        self.proc_cond.notify()
+                    self.proc_cond.release()
+                    # with self.proc_cond:
+                    #     self.proc_cond.notify()
 
     def receive(self):
         msg = self.comm.recv()
@@ -399,7 +406,7 @@ def init_state():
     t = 0
 
     if rank == 0:
-        m = random.randint(MIN_SEE_SIZE,MAX_SEE_SIZE)
+        m = random.randint(MIN_sea_SIZE,MAX_sea_SIZE)
         p_num = random.randint(MIN_VEHICLE_NUM, MAX_VEHICLE_NUM)
         for vehicle_id in (range(p_num)):
             durability = random.randint(MIN_VEHICLE_DURABILITY, MAX_VEHICLE_DURABILITY)
