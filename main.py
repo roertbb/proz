@@ -68,8 +68,6 @@ class Guide():
         self.responses = {}
         self.req_before = []
 
-        # self.proc_cond = Condition()
-        # self.proc_cond = Semaphore()
         self.traveler_semaphore = Semaphore()
         self.messenger_semaphore = Semaphore()
 
@@ -93,23 +91,14 @@ class Guide():
 
             # wait until can enter section
             self.log('wait until can enter sea section')
-            # with self.proc_cond:
-                # self.proc_cond.wait()
-            # self.proc_cond.acquire()
-
-            # print("{} - acquire 1".format(self.rank))
             self.traveler_semaphore.acquire()
-            # FIRST self.messenger_semaphore.release()
-            # print("{} - acquire 2".format(self.rank))
             
             # change section state
             self.log('in sea section')
             self.sea_section()
-            # release section
-
             self.messenger_semaphore.release()
-            # print("{} - acquire 3".format(self.rank))
-
+            
+            # release section
             self.log('sea section released')
 
             # requesting access for vehicle
@@ -118,16 +107,13 @@ class Guide():
 
             # wait until can enter vehicle section
             self.log('wait until can enter vehicle section')
-            # with self.proc_cond:
-            #     self.proc_cond.wait()
-            # self.proc_cond.acquire()
             self.traveler_semaphore.acquire()
-            # FIRST self.messenger_semaphore.release()
             
             # change vehicle section state
             self.log('in vehicle section')
             self.vehicle_section()
             self.messenger_semaphore.release()
+            
             # release vehicle section
             self.log('vehicle section released')
             
@@ -147,12 +133,8 @@ class Guide():
 
                 # wait until can enter section
                 self.log('wait until can enter engineer section')
-                # with self.proc_cond:
-                #     self.proc_cond.wait()
-                # self.proc_cond.acquire()
                 self.traveler_semaphore.acquire()
-                # FIRST self.messenger_semaphore.release()
-
+            
                 # change section state
                 self.log('in engineer section')
                 self.engineer_section()
@@ -386,43 +368,18 @@ class Guide():
             if self.req_res == Resource.SEA:
                 if res_sum + self.x > self.m:
                     return
-                # self.req_res = Resource.NONE
-                    # with self.proc_cond:
-                    #     self.proc_cond.notify()
-                    # self.proc_cond.release()
-                    # print("{} - release 1".format(self.rank))
-                    # self.traveler_semaphore.release()
-                    # print("{} - release 2".format(self.rank))
-                    # self.messenger_semaphore.acquire()
-                    # print("{} - release 3".format(self.rank))
-
+                
             elif self.req_res == Resource.VEHICLE:
                 # return if anyone choosing vehicle before us or there is no available vehicles
                 if len(self.req_before) != 0 or len(self.p) == 0:
                     return
-                # self.req_res = Resource.NONE
-                # with self.proc_cond:
-                #     self.proc_cond.notify()
-                # self.proc_cond.release()
-                # self.traveler_semaphore.release()
-                # self.messenger_semaphore.acquire()
-
+                
             elif self.req_res == Resource.ENGINEER:
                 if res_sum + 1 > self.t:
                     return
-                # self.req_res = Resource.NONE
-                    # with self.proc_cond:
-                    #     self.proc_cond.notify()
-                    # self.proc_cond.release()
-                    # self.traveler_semaphore.release()
-                    # self.messenger_semaphore.acquire()
-
-        # print("{} - release 1".format(self.rank))
+                
         self.traveler_semaphore.release()
-        # print("{} - release 2".format(self.rank))
         self.messenger_semaphore.acquire()
-        # print("{} - release 3".format(self.rank))
-
 
     def receive(self):
         msg = self.comm.recv()
