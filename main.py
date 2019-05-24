@@ -1,20 +1,20 @@
-from threading import Thread, Condition
+from threading import Thread, Condition, Semaphore
 from mpi4py import MPI
 import random
 from enum import Enum
 import time
 
-# SEE
-MIN_SEE_SIZE = 5
-MAX_SEE_SIZE = 6
+# SEA
+MIN_SEA_SIZE = 5
+MAX_SEA_SIZE = 6
 
 # GROUP
 MIN_GROUP_SIZE = 1
 MAX_GROUP_SIZE = 4
 
 # VEHICLE
-MIN_VEHICLE_NUM = 2
-MAX_VEHICLE_NUM = 3
+MIN_VEHICLE_NUM = 1
+MAX_VEHICLE_NUM = 1
 MIN_VEHICLE_DURABILITY = 5
 MAX_VEHICLE_DURABILITY = 10
 
@@ -28,7 +28,7 @@ MAX_WAIT_TIME = 5
 
 class Resource(Enum):
     NONE=0
-    SEE=1
+    SEA=1
     VEHICLE=2
     ENGINEER=3
 
@@ -68,7 +68,10 @@ class Guide():
         self.responses = {}
         self.req_before = []
 
-        self.proc_cond = Condition()
+        # self.proc_cond = Condition()
+        # self.proc_cond = Semaphore()
+        self.traveler_semaphore = Semaphore()
+        self.messenger_semaphore = Semaphore()
 
         self.running = True
         self.run()
@@ -76,77 +79,95 @@ class Guide():
     def run(self):
         # create thread listening for messages
         Thread(target=self.listen).start()
+        self.traveler_semaphore.acquire()
+        self.messenger_semaphore.acquire()
         
         while self.running:
             # wait until group gather
             self.log('wait for group to gather')
             self.rand_sleep()
 
-            # request access to see, broadcast request
-            self.log('requesting access to see')
-            self.request_access_to_see()
+            # request access to sea, broadcast request
+            self.log('requesting access to sea')
+            self.request_access_to_sea()
 
             # wait until can enter section
-            self.log('wait until can enter see section')
-            with self.proc_cond:
-                self.proc_cond.wait()
+            self.log('wait until can enter sea section')
+            # with self.proc_cond:
+                # self.proc_cond.wait()
+            # self.proc_cond.acquire()
 
+            print("{} - acquire 1".format(self.rank))
+            self.traveler_semaphore.acquire()
+            print("{} - acquire 2".format(self.rank))
+            
             # change section state
-            self.log('in see section')
-            self.see_section()
+            self.log('in sea section')
+            self.sea_section()
             # release section
-            self.log('see section released')
 
-            # requesting access for vehicle
-            self.log('requesting access for vehicle')
-            self.request_access_to_vehicle()
+            self.messenger_semaphore.release()
+            print("{} - acquire 3".format(self.rank))
 
-            # wait until can enter vehicle section
-            self.log('wait until can enter vehicle section')
-            with self.proc_cond:
-                self.proc_cond.wait()
+            self.log('sea section released')
 
-            # change vehicle section state
-            self.log('in vehicle section')
-            self.vehicle_section()
-            # release vehicle section
-            self.log('vehicle section released')
+            # # requesting access for vehicle
+            # self.log('requesting access for vehicle')
+            # self.request_access_to_vehicle()
+
+            # # wait until can enter vehicle section
+            # self.log('wait until can enter vehicle section')
+            # # with self.proc_cond:
+            # #     self.proc_cond.wait()
+            # # self.proc_cond.acquire()
+            # self.traveler_semaphore.acquire()
+            # self.messenger_semaphore.release()
+
+            # # change vehicle section state
+            # self.log('in vehicle section')
+            # self.vehicle_section()
+            # # release vehicle section
+            # self.log('vehicle section released')
             
             # travel
             self.log('traveling')
-            self.rand_sleep(damage_vehicle=True)
+            self.rand_sleep()
+            # self.rand_sleep(damage_vehicle=True)
 
-            # free see
-            self.log('finished traveling - releasing see')
-            self.free_see()
+            # free sea
+            self.log('finished traveling - releasing sea')
+            self.free_sea()
 
-            # check if vehicle is a wreck
-            if (self.taken_vehicle['durability'] == 0):
-                # request access for engineer
-                self.log('requesting access to engineer')
-                self.request_access_to_engineer()
+            # # check if vehicle is a wreck
+            # if (self.taken_vehicle['durability'] == 0):
+            #     # request access for engineer
+            #     self.log('requesting access to engineer')
+            #     self.request_access_to_engineer()
 
-                # wait until can enter section
-                self.log('wait until can enter engineer section')
-                with self.proc_cond:
-                    self.proc_cond.wait()
+            #     # wait until can enter section
+            #     self.log('wait until can enter engineer section')
+            #     # with self.proc_cond:
+            #     #     self.proc_cond.wait()
+            #     # self.proc_cond.acquire()
+            #     self.traveler_semaphore.acquire()
+            #     self.messenger_semaphore.release()
 
-                # change section state
-                self.log('in engineer section')
-                self.engineer_section()
-                # release section
-                self.log('engineer section released - repairing vehicle')
+            #     # change section state
+            #     self.log('in engineer section')
+            #     self.engineer_section()
+            #     # release section
+            #     self.log('engineer section released - repairing vehicle')
 
-                # repair vehicle
-                self.rand_sleep(repair_vehicle=True)
+            #     # repair vehicle
+            #     self.rand_sleep(repair_vehicle=True)
 
-                # free engineer
-                self.log('releasing engineer')
-                self.free_engineer()
+            #     # free engineer
+            #     self.log('releasing engineer')
+            #     self.free_engineer()
             
-            # free vehicle
-            self.log('releasing vehicle')
-            self.free_vehicle()
+            # # free vehicle
+            # self.log('releasing vehicle')
+            # self.free_vehicle()
 
     def free_engineer(self):
         msg = {'id': self.rank, 'type': Message.FREE}
@@ -215,18 +236,18 @@ class Guide():
 
     ################################################
 
-    def free_see(self):
+    def free_sea(self):
         msg = {'id': self.rank, 'type': Message.FREE}
         
         with self.req_res_cond:
-            msg['resource'] = Resource.SEE
+            msg['resource'] = Resource.SEA
             msg['amount'] = self.x
             self.m += self.x
             self.x = None
 
             self.broadcast_msg(msg)
 
-    def see_section(self):
+    def sea_section(self):
         msg = {'id': self.rank, 'type': Message.RELEASE}
 
         with self.req_res_cond:
@@ -234,17 +255,17 @@ class Guide():
             self.req_lamport = None
             self.responses = {}
             self.m -= self.x
-            msg['resource'] = Resource.SEE
+            msg['resource'] = Resource.SEA
             msg['amount'] = self.x
 
             self.broadcast_msg(msg)
 
-    def request_access_to_see(self):
+    def request_access_to_sea(self):
         msg = {'id': self.rank, 'type': Message.REQ}
 
         with self.req_res_cond:
-            self.req_res = Resource.SEE
-            msg['resource'] = Resource.SEE
+            self.req_res = Resource.SEA
+            msg['resource'] = Resource.SEA
             self.x = random.randint(MIN_WAIT_TIME, MAX_GROUP_SIZE)
             msg['amount'] = self.x
     
@@ -295,7 +316,7 @@ class Guide():
                         self.send(resp, msg['id'])
                     else:
                         resp = {'id': self.rank, 'type': Message.RES_REQ, 'req_lamport': self.req_lamport} # 'amount': self.x
-                        if self.req_res == Resource.SEE:
+                        if self.req_res == Resource.SEA:
                             resp['amount'] = self.x
                         self.send(resp, msg['id'])
 
@@ -310,7 +331,7 @@ class Guide():
                 # self.log('received release - {}'.format(msg))
                 
                 with self.req_res_cond:
-                    if msg['resource'] == Resource.SEE:
+                    if msg['resource'] == Resource.SEA:
                         self.m -= msg['amount']
                     elif msg['resource'] == Resource.VEHICLE:
                         self.p = list(filter(lambda v: v['vid'] != msg['vehicle'], self.p))
@@ -325,7 +346,7 @@ class Guide():
                 # self.log('received free - {}'.format(msg))
                 
                 with self.req_res_cond:
-                    if msg['resource'] == Resource.SEE:
+                    if msg['resource'] == Resource.SEA:
                         self.m += msg['amount']
                     elif msg['resource'] == Resource.VEHICLE:
                         self.p.append(msg['vehicle'])
@@ -354,24 +375,45 @@ class Guide():
                 if 'req_lamport' in res:
                     if res['req_lamport'] < self.req_lamport or (res['req_lamport'] == self.req_lamport and res['id'] < self.rank):
                         self.req_before.append(res)
-                        res_sum += res['amount'] if self.req_res == Resource.SEE else 1
+                        res_sum += res['amount'] if self.req_res == Resource.SEA else 1
 
-            if self.req_res == Resource.SEE:
-                if res_sum + self.x <= self.m:
-                    with self.proc_cond:
-                        self.proc_cond.notify()
+            if self.req_res == Resource.SEA:
+                if res_sum + self.x > self.m:
+                    return
+                    # with self.proc_cond:
+                    #     self.proc_cond.notify()
+                    # self.proc_cond.release()
+                    # print("{} - release 1".format(self.rank))
+                    # self.traveler_semaphore.release()
+                    # print("{} - release 2".format(self.rank))
+                    # self.messenger_semaphore.acquire()
+                    # print("{} - release 3".format(self.rank))
 
             elif self.req_res == Resource.VEHICLE:
                 # return if anyone choosing vehicle before us or there is no available vehicles
                 if len(self.req_before) != 0 or len(self.p) == 0:
                     return
-                with self.proc_cond:
-                    self.proc_cond.notify()
+                # with self.proc_cond:
+                #     self.proc_cond.notify()
+                # self.proc_cond.release()
+                # self.traveler_semaphore.release()
+                # self.messenger_semaphore.acquire()
 
             elif self.req_res == Resource.ENGINEER:
-                if res_sum + 1 <= self.t:
-                    with self.proc_cond:
-                        self.proc_cond.notify()
+                if res_sum + 1 > self.t:
+                    return
+                    # with self.proc_cond:
+                    #     self.proc_cond.notify()
+                    # self.proc_cond.release()
+                    # self.traveler_semaphore.release()
+                    # self.messenger_semaphore.acquire()
+
+        print("{} - release 1".format(self.rank))
+        self.traveler_semaphore.release()
+        print("{} - release 2".format(self.rank))
+        self.messenger_semaphore.acquire()
+        print("{} - release 3".format(self.rank))
+
 
     def receive(self):
         msg = self.comm.recv()
@@ -396,7 +438,7 @@ def init_state():
     t = 0
 
     if rank == 0:
-        m = random.randint(MIN_SEE_SIZE,MAX_SEE_SIZE)
+        m = random.randint(MIN_SEA_SIZE,MAX_SEA_SIZE)
         p_num = random.randint(MIN_VEHICLE_NUM, MAX_VEHICLE_NUM)
         for vehicle_id in (range(p_num)):
             durability = random.randint(MIN_VEHICLE_DURABILITY, MAX_VEHICLE_DURABILITY)
