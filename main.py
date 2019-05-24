@@ -3,14 +3,15 @@ from mpi4py import MPI
 import random
 from enum import Enum
 import time
+import sys
 
 # SEA
-MIN_SEA_SIZE = 5
-MAX_SEA_SIZE = 6
+MIN_SEA_SIZE = 8
+MAX_SEA_SIZE = 10
 
 # GROUP
-MIN_GROUP_SIZE = 1
-MAX_GROUP_SIZE = 4
+MIN_GROUP_SIZE = 3
+MAX_GROUP_SIZE = 5
 
 # VEHICLE
 MIN_VEHICLE_NUM = 2
@@ -67,6 +68,7 @@ class Guide():
 
         self.responses = {}
         self.req_before = []
+        self.taken_but_not_free = [] # vehicles that has been taken before we obtained free message
 
         self.traveler_semaphore = Semaphore()
         self.messenger_semaphore = Semaphore()
@@ -200,9 +202,7 @@ class Guide():
     def vehicle_section(self):
         msg = {'id': self.rank, 'type': Message.RELEASE}
 
-        print("{} - before req_res_cond".format(self.rank))        
         with self.req_res_cond:
-            print("{} - in req_res_cond".format(self.rank))
             self.req_res = Resource.NONE
             self.req_lamport = None
             self.responses = {}
@@ -211,8 +211,7 @@ class Guide():
             msg['resource'] = Resource.VEHICLE
             
             self.broadcast_msg(msg)
-        print("{} - after req_res_cond".format(self.rank))
-
+        
     def request_access_to_vehicle(self):
         msg = {'id': self.rank, 'type': Message.REQ}
 
@@ -322,7 +321,12 @@ class Guide():
                     if msg['resource'] == Resource.SEA:
                         self.m -= msg['amount']
                     elif msg['resource'] == Resource.VEHICLE:
-                        self.p = list(filter(lambda v: v['vid'] != msg['vehicle'], self.p))
+                        filtered = list(filter(lambda v: v['vid'] != msg['vehicle'], self.p))
+                        if len(filtered) == len(self.p):
+                            print("ERROR - {}, {}, {}, {}".format(self.rank, self.p, filtered, msg['vehicle']))
+                            self.taken_but_not_free.append(msg['vehicle'])
+                            # sys.exit()
+                        self.p = filtered
                     elif msg['resource'] == Resource.ENGINEER:
                         self.t -= 1
 
@@ -337,7 +341,11 @@ class Guide():
                     if msg['resource'] == Resource.SEA:
                         self.m += msg['amount']
                     elif msg['resource'] == Resource.VEHICLE:
-                        self.p.append(msg['vehicle'])
+                        # TODO: taken_but_not_free
+                        if msg['vehicle']['vid'] in self.taken_but_not_free:
+                            self.taken_but_not_free.remove(msg['vehicle']['vid'])
+                        else: 
+                            self.p.append(msg['vehicle'])
                     elif msg['resource'] == Resource.ENGINEER:
                         self.t += 1
 
@@ -396,7 +404,23 @@ class Guide():
         parse_vehicle = lambda v: '{}:{}/{}'.format(v['vid'],v['durability'],v['max_durability'])
         vehicles = list(map(parse_vehicle, self.p))
         my_vehicle = list(map(parse_vehicle, [self.taken_vehicle])) if self.taken_vehicle else '-'
-        print(colors[self.rank] + 'id: {}, l: {:5}, req_l: {:4}, m: {:3}, x: {:4}, p: {:30}, my_p: {:15}, t: {:2} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, vehicles, my_vehicle, self.t, msg) + CEND)
+        print(colors[self.rank] + 'id: {}, l: {:5}, req_l: {:4}, m: {:3}, x: {:4}, p: {:30}, my_p: {:15}, t: {:2} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, vehicles, my_vehicle, self.t, msg) + CEND) 
+        # check if 2 vehicles
+        ct = list(map(lambda p: p['vid'], self.p))
+        for c1 in ct:
+            count = 0
+            for c2 in ct:
+                if c1 == c2:
+                    count += 1
+            if count >= 2:
+                print("STOP P - {}".format(self.rank))
+                sys.exit()
+        # if self.m < 0:
+        #     print("STOP M - {}".format(self.rank))
+        #     sys.exit()
+        # if self.t < 0:
+        #     print("STOP T - {}".format(self.rank))
+        #     sys.exit()
 
 def init_state():
     m = 0
