@@ -4,24 +4,30 @@ import random
 from enum import Enum
 import time
 import sys
+import argparse
+
+# CONSTS
+SEA_SIZE = 5
+VEHICLE = [5,6]
+ENGINEER_NUM = 1
 
 # SEA
-MIN_SEA_SIZE = 8
-MAX_SEA_SIZE = 10
+# MIN_SEA_SIZE = 5
+# MAX_SEA_SIZE = 5
 
 # GROUP
 MIN_GROUP_SIZE = 3
 MAX_GROUP_SIZE = 5
 
 # VEHICLE
-MIN_VEHICLE_NUM = 2
-MAX_VEHICLE_NUM = 2
-MIN_VEHICLE_DURABILITY = 5
-MAX_VEHICLE_DURABILITY = 10
+# MIN_VEHICLE_NUM = 2
+# MAX_VEHICLE_NUM = 2
+# MIN_VEHICLE_DURABILITY = 5
+# MAX_VEHICLE_DURABILITY = 6
 
 # ENGINEER
-MIN_ENGINEER_NUM = 1
-MAX_ENGINEER_NUM = 2
+# MIN_ENGINEER_NUM = 1
+# MAX_ENGINEER_NUM = 1
 
 # SLEEP
 MIN_WAIT_TIME = 2
@@ -262,13 +268,14 @@ class Guide():
 
     def broadcast_msg(self, msg):
         with self.lamport_cond:
-            self.lamport += 1
-            msg['lamport'] = self.lamport
             self.req_lamport = self.lamport
             msg['req_lamport'] = self.req_lamport
         
             for tid in range(self.size):
                 if tid != self.rank:
+                    self.lamport += 1
+                    msg['lamport'] = self.lamport
+                    
                     self.comm.send(msg, dest=tid)
     
     def rand_sleep(self, damage_vehicle = False, repair_vehicle = False):
@@ -323,9 +330,7 @@ class Guide():
                     elif msg['resource'] == Resource.VEHICLE:
                         filtered = list(filter(lambda v: v['vid'] != msg['vehicle'], self.p))
                         if len(filtered) == len(self.p):
-                            print("ERROR - {}, {}, {}, {}".format(self.rank, self.p, filtered, msg['vehicle']))
                             self.taken_but_not_free.append(msg['vehicle'])
-                            # sys.exit()
                         self.p = filtered
                     elif msg['resource'] == Resource.ENGINEER:
                         self.t -= 1
@@ -354,7 +359,6 @@ class Guide():
                     self.can_enter_section()
 
     def can_enter_section(self):
-        print(self.rank, self.responses)
         # return when didn't received response from others
         if len(self.responses.values()) < self.size-1:
             return
@@ -400,21 +404,22 @@ class Guide():
     def log(self, msg):
         colors = ['\033[91m','\033[92m','\033[93m','\033[94m','\033[95m','\033[96m']
         CEND = '\033[0m'
-        # print(colors[self.rank] + 'id: {}, t: {:5}, req_t: {:4}, m: {:3}, x: {:4} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, msg) + CEND)
         parse_vehicle = lambda v: '{}:{}/{}'.format(v['vid'],v['durability'],v['max_durability'])
         vehicles = list(map(parse_vehicle, self.p))
         my_vehicle = list(map(parse_vehicle, [self.taken_vehicle])) if self.taken_vehicle else '-'
         print(colors[self.rank] + 'id: {}, l: {:5}, req_l: {:4}, m: {:3}, x: {:4}, p: {:30}, my_p: {:15}, t: {:2} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, vehicles, my_vehicle, self.t, msg) + CEND) 
-        # check if 2 vehicles
-        ct = list(map(lambda p: p['vid'], self.p))
-        for c1 in ct:
-            count = 0
-            for c2 in ct:
-                if c1 == c2:
-                    count += 1
-            if count >= 2:
-                print("STOP P - {}".format(self.rank))
-                sys.exit()
+        # print("{} | {} - {}".format(self.lamport, self.rank, msg))
+        
+        ## check if 2 vehicles
+        # ct = list(map(lambda p: p['vid'], self.p))
+        # for c1 in ct:
+        #     count = 0
+        #     for c2 in ct:
+        #         if c1 == c2:
+        #             count += 1
+        #     if count >= 2:
+        #         print("STOP P - {}".format(self.rank))
+        #         sys.exit()
         # if self.m < 0:
         #     print("STOP M - {}".format(self.rank))
         #     sys.exit()
@@ -422,18 +427,33 @@ class Guide():
         #     print("STOP T - {}".format(self.rank))
         #     sys.exit()
 
+def init_vehicles(p):
+    vehicles = []
+    for vehicle_id in range(len(p)):
+        durability = int(p[vehicle_id])
+        vehicles.append({'vid': vehicle_id, 'durability': durability, 'max_durability': durability})
+    return vehicles    
+
 def init_state():
     m = 0
     p = []
     t = 0
 
     if rank == 0:
-        m = random.randint(MIN_SEA_SIZE,MAX_SEA_SIZE)
-        p_num = random.randint(MIN_VEHICLE_NUM, MAX_VEHICLE_NUM)
+        # m = random.randint(MIN_SEA_SIZE,MAX_SEA_SIZE)
+        # p_num = random.randint(MIN_VEHICLE_NUM, MAX_VEHICLE_NUM)
+        # for vehicle_id in (range(p_num)):
+        #     durability = random.randint(MIN_VEHICLE_DURABILITY, MAX_VEHICLE_DURABILITY)
+        #     p.append({'vid': vehicle_id, 'durability': durability, 'max_durability': durability})
+        # t = random.randint(MIN_ENGINEER_NUM, MAX_ENGINEER_NUM)
+
+        m = SEA_SIZE
+        p_num = len(VEHICLE)
         for vehicle_id in (range(p_num)):
-            durability = random.randint(MIN_VEHICLE_DURABILITY, MAX_VEHICLE_DURABILITY)
+            durability = VEHICLE[vehicle_id]
             p.append({'vid': vehicle_id, 'durability': durability, 'max_durability': durability})
-        t = random.randint(MIN_ENGINEER_NUM, MAX_ENGINEER_NUM)
+        t = ENGINEER_NUM
+
         data = {'m': m, 'p': p, 't': t}
     else:
         data = None
