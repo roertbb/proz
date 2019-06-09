@@ -356,6 +356,7 @@ class Guide():
                     self.can_enter_section()
 
     def can_enter_section(self):
+        print("id: {}, responses: {}".format(self.rank, self.responses))
         # return when didn't received response from others
         if len(self.responses.values()) < self.size-1:
             return
