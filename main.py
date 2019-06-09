@@ -50,18 +50,15 @@ class Guide():
     def __init__(self, m, p, t, comm, rank, size):
         # local data
         self.m = m
-        self.max_m = m
         self.p = p
         self.t = t
-        self.max_t = t
-
+        
         # requesting resource data
         self.req_res_cond = Condition()
         self.req_res = Resource.NONE
         self.x = None
         self.taken_vehicle = None
-        # self.taken_t = None
-
+        
         # mpi related
         self.comm = comm
         self.rank = rank
@@ -190,7 +187,7 @@ class Guide():
             self.req_res = Resource.ENGINEER
             msg['resource'] = Resource.ENGINEER
     
-            self.broadcast_msg(msg)
+            self.broadcast_msg(msg, True)
 
     ################################################
 
@@ -225,7 +222,7 @@ class Guide():
             self.req_res = Resource.VEHICLE
             msg['resource'] = Resource.VEHICLE
     
-            self.broadcast_msg(msg)
+            self.broadcast_msg(msg, True)
 
     ################################################
 
@@ -262,20 +259,21 @@ class Guide():
             self.x = random.randint(MIN_WAIT_TIME, MAX_GROUP_SIZE)
             msg['amount'] = self.x
     
-            self.broadcast_msg(msg)
+            self.broadcast_msg(msg, True)
 
     ################################################
 
-    def broadcast_msg(self, msg):
+    def broadcast_msg(self, msg, req_time = False):
         with self.lamport_cond:
-            self.req_lamport = self.lamport
-            msg['req_lamport'] = self.req_lamport
+            self.lamport += 1
+            msg['lamport'] = self.lamport
+            
+            if req_time:
+                self.req_lamport = self.lamport
+                msg['req_lamport'] = self.req_lamport
         
             for tid in range(self.size):
                 if tid != self.rank:
-                    self.lamport += 1
-                    msg['lamport'] = self.lamport
-                    
                     self.comm.send(msg, dest=tid)
     
     def rand_sleep(self, damage_vehicle = False, repair_vehicle = False):
@@ -346,7 +344,6 @@ class Guide():
                     if msg['resource'] == Resource.SEA:
                         self.m += msg['amount']
                     elif msg['resource'] == Resource.VEHICLE:
-                        # TODO: taken_but_not_free
                         if msg['vehicle']['vid'] in self.taken_but_not_free:
                             self.taken_but_not_free.remove(msg['vehicle']['vid'])
                         else: 
@@ -409,23 +406,6 @@ class Guide():
         my_vehicle = list(map(parse_vehicle, [self.taken_vehicle])) if self.taken_vehicle else '-'
         print(colors[self.rank] + 'id: {}, l: {:5}, req_l: {:4}, m: {:3}, x: {:4}, p: {:30}, my_p: {:15}, t: {:2} - {}'.format(self.rank, self.lamport, self.req_lamport, self.m, self.x, vehicles, my_vehicle, self.t, msg) + CEND) 
         # print("{} | {} - {}".format(self.lamport, self.rank, msg))
-        
-        ## check if 2 vehicles
-        # ct = list(map(lambda p: p['vid'], self.p))
-        # for c1 in ct:
-        #     count = 0
-        #     for c2 in ct:
-        #         if c1 == c2:
-        #             count += 1
-        #     if count >= 2:
-        #         print("STOP P - {}".format(self.rank))
-        #         sys.exit()
-        # if self.m < 0:
-        #     print("STOP M - {}".format(self.rank))
-        #     sys.exit()
-        # if self.t < 0:
-        #     print("STOP T - {}".format(self.rank))
-        #     sys.exit()
 
 def init_vehicles(p):
     vehicles = []
